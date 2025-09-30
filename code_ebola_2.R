@@ -1,0 +1,456 @@
+#----------------------
+#----------------------
+
+# install.packages("nlme")
+library(tidyverse)  # tidyverse 
+library(nlme)       # non-linear mixed effect models
+library(saemix)
+
+
+tb_theo <- tibble(Theoph)
+
+tb_theo <- tb_theo |>
+  janitor::clean_names() |>
+  rename(
+    id = subject,
+    weight = wt,
+    concentration = conc
+  ) |>
+  relocate(time, .after = id) |>
+  relocate(concentration, .after = time) |>
+  select(-dose) |>
+  filter(time != 0) |>
+  mutate(
+    id = fct_relevel(id, as.character(1:12))
+  )
+
+tb_theo 
+
+tb_theo |>
+  ggplot(aes(x = time, y = concentration, group = id)) +
+  geom_point(color = "tomato") +
+  geom_line(color = "tomato")
+
+tb_theo |>
+  ggplot(aes(x = time, y = concentration, group = id)) +
+  geom_point(color = "tomato") +
+  geom_line(color = "tomato") +
+  facet_wrap( ~ id)
+
+#----------------------
+#----------------------
+
+subject_1 <- tb_theo |>
+  filter(id == 1) 
+
+subject_1 |>
+  ggplot(aes(x = time, y = concentration)) +
+  geom_point(color = "tomato") +
+  geom_line(color = "tomato")
+
+f1 <- function(psi, t){
+  k_a <- psi[1]
+  k_e <- psi[2]
+  v  <- psi[3]
+  f  <- k_a / (v * (k_a - k_e)) * (exp(-k_e * t) - exp(-k_a * t)) 
+  f
+}
+
+model_subject_1 <- nls(
+  concentration ~ f1(psi, time), 
+  start = list(psi = c(k_a = 1, k_e = 0.1, v = 0.125)), 
+  data = subject_1
+)
+model_subject_1
+coef(model_subject_1)
+
+
+subject_1_pred <- tibble(time = seq(0, 40, 0.2)) 
+subject_1_pred <- subject_1_pred |>
+  mutate(
+    concentration_pred = predict(
+      model_subject_1, 
+      newdata = subject_1_pred
+    )
+  )
+subject_1_pred
+
+
+subject_1 |>
+  ggplot() +
+  geom_point(
+    aes(x = time, y = concentration),
+    color = "tomato",
+    size = 2
+  ) +
+  geom_line(
+    data = subject_1_pred, 
+    aes(x = time, y = concentration_pred), 
+    color = "darkseagreen",
+    linewidth = 1
+  )
+
+#----------------------
+#----------------------
+
+model_all <- nls(
+  concentration ~ f1(psi, time), 
+  start = list(psi = c(k_a = 1, k_e = 0.1, v = 0.125)), 
+  data = tb_theo
+)
+model_all
+coef(model_all)
+
+
+all_pred <- tibble(time = seq(0, 40, 0.2)) 
+all_pred <- all_pred|>
+  mutate(
+    concentration_pred = predict(
+      model_all, 
+      newdata = all_pred
+    )
+  )
+all_pred
+
+
+tb_theo |>
+  ggplot() +
+  geom_point(
+    aes(x = time, y = concentration, group = id),
+    color = "tomato",
+    size = 2
+  ) +
+  geom_line(
+    data = all_pred, 
+    aes(x = time, y = concentration_pred), 
+    color = "darkseagreen",
+    linewidth = 1
+  )
+
+tb_theo |>
+  ggplot() +
+  geom_point(
+    aes(x = time, y = concentration, group = id),
+    color = "tomato",
+    size = 2
+  ) +
+  geom_line(
+    data = all_pred, 
+    aes(x = time, y = concentration_pred), 
+    color = "darkseagreen",
+    linewidth = 1
+  ) +
+  facet_wrap( ~ id)
+
+#----------------------
+#----------------------
+
+subject_individual <- tibble()
+
+for(i in 1: 12){
+  #subject_i <- tb_theo |>
+  #  filter(id == i) 
+  
+  model_subject_i <- nls(
+    concentration ~ f1(psi, time), 
+    start = list(psi = c(k_a = 1, k_e = 0.1, v = 0.125)), 
+    data = tb_theo |>
+      filter(id == i) 
+  )
+  
+  subject_i_pred <- tibble(
+    time = seq(0, 40, 0.2),
+    id = rep(i, length(time))
+  ) 
+  subject_i_pred <- subject_i_pred |>
+    mutate(
+      concentration_pred = predict(
+        model_subject_i, 
+        newdata = subject_i_pred
+      )
+    )
+  
+  subject_individual <- bind_rows(subject_individual, subject_i_pred)
+}
+
+subject_individual <- subject_individual |>
+  relocate(id, .before = time) |>
+  mutate(
+    id = factor(id, levels = as.character(1:12), ordered = TRUE)
+  ) 
+
+subject_individual
+
+tb_theo |>
+  ggplot() +
+  geom_point(
+    aes(x = time, y = concentration, group = id),
+    color = "tomato",
+    size = 2
+  ) +
+  geom_line(
+    data = subject_individual, 
+    aes(x = time, y = concentration_pred, group = id), 
+    color = "darkseagreen",
+    linewidth = 1
+  ) +
+  facet_wrap( ~ id)
+
+model_subject_9 <- nls(
+  concentration ~ f1(psi, time), 
+  start = list(psi = c(k_a = 1, k_e = 0.1, v = 0.125)), 
+  data = tb_theo |>
+    filter(id == 9) 
+)
+model_subject_9
+
+#----------------------
+#----------------------
+saemix_data <- saemixData(name.data = tb_theo,
+                          name.group = "id",
+                          name.predictors = "time",
+                          name.response = "concentration")
+
+model_1_nlme <- function(psi, id, x){
+  t   <- x[, 1]
+  k_a <- psi[id, 1]
+  k_e <- psi[id, 2]
+  v  <- psi[id, 3]
+  fpred  <- k_a / (v * (k_a - k_e)) * (exp(-k_e * t) - exp(-k_a * t)) 
+  fpred
+}
+
+saemix_model <- saemixModel(
+  model = model_1_nlme,
+  psi0  = c(k_a = 1, k_e = 0.1, v = 0.125)
+)
+
+saemix_options <- list(
+  map = TRUE, 
+  fim = TRUE, 
+  ll.is = FALSE, 
+  displayProgress = FALSE, 
+  save = FALSE, 
+  seed = 42
+)
+
+saemix_fit1 <- saemix(
+  saemix_model, 
+  saemix_data, 
+  saemix_options
+)
+
+saemix_fit1@results
+
+psi <- psi(saemix_fit1)
+psi
+
+saemix_fit <- saemix.predict(saemix_fit1)
+
+saemix.plot.fits(saemix_fit1)
+
+saemix.plot.obsvspred(saemix_fit1,level=1)
+
+saemix.plot.scatterresiduals(saemix_fit1, level=1)
+
+
+
+
+
+#------------------------------------------------------------------
+#------------------------------------------------------------------
+
+# read the csv file
+tb <- read_csv("data/data_ebola_ab.csv")
+
+
+# checking the var types
+tb |>
+  summarise(across(everything(), typeof)) |>
+  knitr::kable(align = "ccccccc")
+
+# checking for possible missing vals
+tb |>
+  summarise(across(everything(), \(x) sum(is.na(x)))) |>
+  knitr::kable(align = "ccccccc")
+
+
+tb <- tb |>
+  # clean the names
+  janitor::clean_names() |>
+  # transform chr into factors
+  mutate(across(where(is.character), fct))
+
+tb_clean <- tb |>
+  filter(age >= 0)
+
+tb_clean <- tb_clean |>
+  mutate(age_updated = age + time / 365) |>
+  relocate(age_updated, .after = age)
+
+tb_clean
+
+tb_clean_after_7 <- tb_clean |>
+  filter(time != 0)
+
+tb_clean_after_7 |>
+  ggplot(aes(x = time, y = abelisa, color = bmi, group = id)) +
+  geom_line() +
+  scale_color_distiller(palette = "RdPu") +
+  labs(
+    title = "Antibody concentration during time",
+    x = "Time (days)",
+    y = "Antibody conc. (EU/mL)",
+    color = "BMI"
+  ) +
+  theme(
+    legend.direction = "horizontal",
+    legend.position = "bottom"
+  )
+
+
+tb_clean_after_7 |>
+  ggplot(aes(x = time, y = abelisa, color = bmi, group = id)) +
+  geom_line() +
+  scale_color_distiller(palette = "RdPu") +
+  labs(
+    title = "Antibody concentration during time",
+    x = "Time (days)",
+    y = "Antibody conc. (EU/mL)",
+    color = "BMI"
+  ) +
+  theme(
+    legend.direction = "horizontal",
+    legend.position = "bottom"
+  ) +
+  facet_grid(sex ~ country)
+
+
+tb_clean_after_7 |>
+  ggplot(aes(x = time, y = abelisa, color = bmi, group = id)) +
+  geom_line() +
+  scale_color_distiller(palette = "RdPu") +
+  labs(
+    title = "Antibody concentration during time",
+    x = "Time (days)",
+    y = "Antibody conc. (EU/mL)",
+    color = "BMI"
+  ) +
+  theme(
+    legend.direction = "horizontal",
+    legend.position = "bottom"
+  ) +
+  facet_wrap( ~ id)
+
+tb_clean_after_7 |>
+  filter(id == "ID1") |>
+  ggplot(aes(x = time, y = abelisa)) +
+  geom_point(color = "tomato") +
+  geom_line(color = "tomato") +
+  labs(
+    title = "Antibody concentration during time for subject ID1",
+    x = "Time (days)",
+    y = "Antibody conc. (EU/mL)"
+  ) 
+
+
+
+
+
+
+
+subject_1 <- tb_clean_after_7 |>
+  filter(id == "ID1") 
+subject_1
+
+subject_1 |>
+  ggplot(aes(x = time, y = abelisa)) +
+  geom_point(color = "tomato") +
+  geom_line(color = "tomato")
+
+f1 <- function(psi, t){
+  k_a <- psi[1]
+  k_e <- psi[2]
+  v  <- psi[3]
+  f  <- k_a / (v * (k_a - k_e)) * (exp(-k_e * t) - exp(-k_a * t)) 
+  f
+}
+
+# k_a = 1, k_e = 0.1, v = 0.125
+
+
+
+
+fm0 <- nls(
+  log(abelisa) ~ log(f1(psi, time)), 
+  data = subject_1, 
+  start = list(psi = c(k_a = 10, k_e = 0.1, v = 0.1))
+  )
+
+model_subject_1 <- nls(
+  abelisa ~ f1(psi, time), 
+  data = subject_1,
+  start = list(psi = c(k_a = 1, k_e = 1, v = 1.25))
+)
+
+model_subject_1
+coef(model_subject_1)
+
+
+subject_1_pred <- tibble(time = seq(0, 750, 1)) 
+subject_1_pred <- subject_1_pred |>
+  mutate(
+    abelisa_pred = predict(
+      model_subject_1, 
+      newdata = subject_1_pred
+    )
+  )
+subject_1_pred
+
+
+subject_1 |>
+  ggplot() +
+  geom_point(
+    aes(x = time, y = abelisa),
+    color = "tomato",
+    size = 2
+  ) +
+  geom_line(
+    data = subject_1_pred, 
+    aes(x = time, y = abelisa_pred), 
+    color = "darkseagreen",
+    linewidth = 1
+  )
+
+range_s_1 <- subject_1 |>
+  pull(abelisa) |>
+  range()
+range_s_1
+
+time_test <- seq(7:1e3)
+
+f_approx <- function(y_min, y_max, rate, time){
+  return(y_min + (y_max - y_min) * exp(-rate * time)) 
+}
+tb <- tibble(
+  time  = time_test,
+  f = f_approx(
+    y_min = range_s_1[1], 
+    y_max = range_s_1[2], 
+    rate = 0.007, 
+    time_test
+    )
+)
+tb
+
+tb |>
+  ggplot(aes(x = time, y = f)) +
+  geom_line()
+
+subject_1 |>
+  ggplot(aes(x = time, y = abelisa)) +
+  geom_point(color = "tomato") +
+  geom_line(color = "tomato") +
+  geom_line(aes(x = time, y = f), data = tb)
+  
+

@@ -1,0 +1,146 @@
+{
+    "sources": [
+        {
+            "DOI": "10.1093/comjnl/27.2.97",
+            "ISSN": "0010-4620",
+            "URL": "https://doi.org/10.1093/comjnl/27.2.97",
+            "author": [
+                {
+                    "family": "Knuth",
+                    "given": "Donald E."
+                }
+            ],
+            "container-title": "Comput. J.",
+            "id": "knuth84",
+            "issue": "2",
+            "issued": {
+                "date-parts": [
+                    [
+                        1984,
+                        5
+                    ]
+                ]
+            },
+            "page": "97-111",
+            "publisher": "Oxford University Press, Inc.",
+            "publisher-place": "USA",
+            "title": "Literate programming",
+            "type": "article-journal",
+            "volume": "27"
+        },
+        {
+            "DOI": "10.1016/s0169-7161(09)70065-3",
+            "URL": "http://dx.doi.org/10.1016/s0169-7161(09)70065-3",
+            "id": "handbook2009",
+            "issued": {
+                "date-parts": [
+                    [
+                        2009
+                    ]
+                ]
+            },
+            "page": "615-642",
+            "publisher": "Elsevier",
+            "title": "Handbook of statistics: Contents of previous volumes",
+            "title-short": "Handbook of statistics",
+            "type": "chapter"
+        },
+        {
+            "DOI": "10.1214/ss/1177012031",
+            "URL": "http://dx.doi.org/10.1214/ss/1177012031",
+            "author": [
+                {
+                    "family": "Splawa-Neyman",
+                    "given": "Jerzy"
+                },
+                {
+                    "family": "Dabrowska",
+                    "given": "D. M."
+                },
+                {
+                    "family": "Speed",
+                    "given": "T. P."
+                }
+            ],
+            "container-title": "Statistical Science",
+            "id": "splawa-neyman1990",
+            "issue": "4",
+            "issued": {
+                "date-parts": [
+                    [
+                        1990,
+                        11,
+                        1
+                    ]
+                ]
+            },
+            "title": "On the application of probability theory to agricultural experiments. Essay on principles. Section 9",
+            "type": "article-journal",
+            "volume": "5"
+        },
+        {
+            "DOI": "10.1128/jvi.00579-19",
+            "URL": "http://dx.doi.org/10.1128/jvi.00579-19",
+            "author": [
+                {
+                    "family": "Pasin",
+                    "given": "Chloé"
+                },
+                {
+                    "family": "Balelli",
+                    "given": "Irene"
+                },
+                {
+                    "family": "Van Effelterre",
+                    "given": "Thierry"
+                },
+                {
+                    "family": "Bockstal",
+                    "given": "Viki"
+                },
+                {
+                    "family": "Solforosi",
+                    "given": "Laura"
+                },
+                {
+                    "family": "Prague",
+                    "given": "Mélanie"
+                },
+                {
+                    "family": "Douoguih",
+                    "given": "Macaya"
+                },
+                {
+                    "family": "Thiébaut",
+                    "given": "Rodolphe"
+                }
+            ],
+            "container-title": "Journal of Virology",
+            "editor": [
+                {
+                    "family": "Heise",
+                    "given": "Mark T."
+                }
+            ],
+            "id": "pasin2019",
+            "issue": "18",
+            "issued": {
+                "date-parts": [
+                    [
+                        2019,
+                        9,
+                        15
+                    ]
+                ]
+            },
+            "language": "en",
+            "title": "Dynamics of the Humoral Immune Response to a Prime-Boost Ebola Vaccine: Quantification and Sources of Variation",
+            "title-short": "Dynamics of the Humoral Immune Response to a Prime-Boost Ebola Vaccine",
+            "type": "article-journal",
+            "volume": "93"
+        }
+    ],
+    "project_biblios": [
+        "references.bib"
+    ]
+}

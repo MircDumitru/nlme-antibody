@@ -1,0 +1,2348 @@
+# NLME models for antibody concentration decay {#sec-nlme-ab}
+
+::: content-hidden
+$$
+{{< include _macros.tex >}}
+{{< include _packages.tex >}}
+$$
+:::
+
+```{r}
+#| echo: false
+
+source("_settings.R")
+```
+
+## Introduction
+
+### Prerequisites
+
+```{r}
+#| warning: false
+#| message: false
+
+library(tidyverse)  # tidyverse 
+library(nlme)       # non-linear mixed effect models
+library(saemix)     # nlme package for saemix objects;
+```
+
+## Exploratory data analysis
+
+Reading the csv file and look at its head:
+
+```{r}
+#| code-fold: true
+#| message: false
+
+# read the csv file
+tb <- read_csv("data/data_ebola_ab.csv")
+tb |>
+  head() |>
+  knitr::kable(align = "ccccccc")
+```
+
+Check the data types (and transform "character" into "factors" if any) and check for missing values.
+
+@tbl-var-types shows the corresponding data types for the variables in the data set. Three variables (`ID`, `sex`, `country`) are categorical variables and will be re-coded as factors.
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: tbl-var-types
+#| tbl-cap: | 
+#|  The variable types in the data set
+
+# checking the var types
+tb |>
+  summarise(across(everything(), typeof)) |>
+  knitr::kable(align = "ccccccc")
+```
+
+@tbl-missing-vals shows the number of missing values for each variable in the data set. There are no missing values.
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: tbl-missing-vals
+#| tbl-cap: | 
+#|  The number of missing values in each variable
+
+# checking for possible missing vals
+tb |>
+  summarise(across(everything(), \(x) sum(is.na(x)))) |>
+  knitr::kable(align = "ccccccc")
+```
+
+Two pre-processing operations should be done:
+
+-   cleaning the names (not essential but for consistency we adhere to the tidy design principles),
+-   transforming the "character" variables into "factors" (when important, the ordering of factors should be accounted for; here the `sex` and `country` variables are not ordered factors; the `ID` variable might be ordered for visualizations reasons if necessary).
+
+The following chunk is doing the pre-processing as mentioned above and checks the correctness of the pre-processing.
+
+```{r}
+#| code-fold: true
+
+tb <- tb |>
+  # clean the names
+  janitor::clean_names() |>
+  # transform chr into factors
+  mutate(across(where(is.character), fct))
+
+# check the transformed tibble
+tb |>
+  glimpse()
+```
+
+The tibbles now has factor variables & tidy names. The next chunk is looking at the number of unique values in factor variables (i.e. the support of the categorical variables). @tbl-fcts-unique shows the number of unique values in factor variables.
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: tbl-fcts-unique
+#| tbl-cap: | 
+#|  The corresponding number of levels for the factor variables
+
+# tb |>
+#   summarise(across(where(is.factor), \(x) length(unique(x))))
+
+tb |>
+  summarise(across(where(is.factor), n_distinct)) |>
+  knitr::kable(align = "ccc")
+```
+
+For the factor variables in the tibble:
+
+-   `{r} tb |> pull(id) |> n_distinct()` levels for `id` factor variable.
+-   `{r} tb |> pull(sex) |> n_distinct()` levels for `sex` factor variable.
+-   `{r} tb |> pull(country) |> n_distinct()` levels for `country` factor variable.
+
+The next subsections are looking at the factor variables. The goal is to have an idea about possible inbalances between levels and to have some visual inspection of their distributions.
+
+## The factor variables
+
+### The `id` variable
+
+The following chunk is computing the counts and proportions of the `id`'s variable levels.
+
+```{r}
+#| code-fold: true
+tb_id_levels_number <- tb |>
+  summarise(
+    n = n(),
+    .by = id
+  ) |>
+  mutate(
+    prop = n / sum(n),
+  )
+```
+
+@tbl-id-levels-number shows the head of the summarized data, showing the corresponding counts (representing the number of measurements/observations) for each level in the `id` variable and @fig-id-levels-number shows a visualisation of the `id` variable level's counts.
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: tbl-id-levels-number
+#| tbl-cap: | 
+#|  The number of observations for each level corresponding to `id` variable
+tb_id_levels_number |>
+  head() |>
+  knitr::kable(align = "ccc")
+```
+
+```{r}
+#| code-fold: true
+#| label: fig-id-levels-number
+#| fig-cap: | 
+#|  The number of observations for each level corresponding to `id` variable
+
+tb_id_levels_number |>
+  ggplot(aes(x = id, y = n)) +
+  geom_point(size = 3, color = "tomato") +
+  geom_segment(aes(x = id, xend = id, y = 0, yend = n), color = "tomato") +
+  labs(
+    title = "Number of observations of the ID levels",
+    subtitle = "Each subject appears with 8 measurements in the data",
+    x = "Subject's ID",
+    y = "Number of observations"
+  ) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust=1)) +
+  theme_bw()
+```
+
+It seems that each `id` level has the same number of counts for each level, i.e. it seems that there are preciselsy $8$ observations for *every* subject in the data set. This can be checked by looking at the complete tibble given its small size but in general it can be checked by computing the number of distinct values in counts variable (`n`) in the summarized data. The following codes does exactly this:
+
+```{r}
+#| code-fold: true
+
+tb_id_levels_number |>
+  select(n) |>
+  n_distinct() == TRUE
+```
+
+There is only one numerical value (8 in this case) corresponding to the ID counts for each level. Hence, it can be concluded that
+
+::: callout-note
+The number of observations (measurements) is the same across the subjects (8 observations), i.e. there are no missing or additional measurements for any subject in the data set.
+:::
+
+```{r}
+#| code-fold: true
+
+n_obs_per_subject <- tb_id_levels_number |>
+  pull(n) |>
+  unique()
+# n_obs_per_subject
+```
+
+### The `sex` variable
+
+The following chunk is looking at the counts and proportion of the `sex`'s variable levels.
+
+```{r}
+#| code-fold: true
+
+tb_sex_levels_number <- tb |>
+  summarise(
+    n_obs = n(),
+    .by = sex
+  ) |>
+  mutate(
+    n_subjects = n_obs / n_obs_per_subject,
+    prop = n_subjects / sum(n_subjects),
+  )
+```
+
+@tbl-sex_levels_number shows the number of subjects for each `sex`'s variable level and their corresponding proportion in the data set. @fig-sex_levels_number shows a bar plot visualisation of the proportions.
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: tbl-sex_levels_number
+#| tbl-cap: | 
+#|  The number of subjects for each sex level and their corresponding 
+#|  proportion in the data set.
+
+tb_sex_levels_number |>
+  knitr::kable(align = "cccc")
+```
+
+```{r}
+#| code-fold: true
+#| label: fig-sex_levels_number
+#| fig-cap: | 
+#|  The proportion of the sex levels in the data.
+
+tb |>
+  ggplot(aes(x = sex, y = after_stat(prop), group = 1)) +
+  geom_bar(fill = "tomato") +
+  labs(
+    title = "Proportion of the sex levels in the data",
+    x = "Subject's sex",
+    y = "Proportion"
+  ) +
+  scale_y_continuous(labels = scales::percent) +
+  theme_bw()
+```
+
+The counts and proportions for the levels corresponding to the `sex` variable are:
+
+-   "Female" level: `{r} tb_sex_levels_number$n_subjects[1]` subjects, representing `{r} round(tb_sex_levels_number$prop[1], 2)`% of the data,
+-   "Male" level: `{r} tb_sex_levels_number$n_subjects[2]` subjects, representing `{r} round(tb_sex_levels_number$prop[2], 2)`% of the data.
+
+Hence, it can be concluded that
+
+::: callout-note
+The data is fairly balanced between the `sex`'s variable levels.
+:::
+
+### The `country` variable
+
+The following chunk is looking at the counts and proportion of the `country`'s variable levels:
+
+```{r}
+#| code-fold: true
+
+tb_country_levels_number <- tb |>
+  summarise(
+    n_obs = n(),
+    .by = country
+  ) |>
+  mutate(
+    n_subjects = n_obs / n_obs_per_subject,
+    prop = n_subjects / sum(n_subjects),
+  )
+```
+
+@tbl-country-levels-number shows the number of subjects for each `country`'s variable levels and their corresponding proportion in the data set. @fig-country-levels-number shows a bar plot visualisation of the proportions.
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: tbl-country-levels-number
+#| tbl-cap: | 
+#|  The number of subjects for each country level and their corresponding 
+#|  proportion in the data set.
+
+tb_country_levels_number |>
+  knitr::kable(align = "ccc")
+```
+
+```{r}
+#| code-fold: true
+#| label: fig-country-levels-number
+#| fig-cap: | 
+#|  The proportion of the country levels in the data.
+
+tb |>
+  ggplot(aes(x = country,  y = after_stat(prop), group = 1)) +
+  geom_bar(fill = "tomato") +
+  labs(
+    title = "Proportion of the country levels in the data",
+    x = "Subjects's country",
+    y = "Proportion"
+  ) +
+  scale_y_continuous(labels = scales::percent) +
+  theme_bw()
+```
+
+The counts and proportions for the levels corresponding to the `country` variable are:
+
+-   "West Africa" level: `{r} tb_country_levels_number$n_subjects[1]` observations, representing `{r} round(tb_country_levels_number$prop[1], 2)`% of the data,
+-   "East Africa" level: `{r} tb_country_levels_number$n_subjects[2]` observations, representing `{r} round(tb_country_levels_number$prop[2], 2)`% of the data,
+-   "Europe" level: `{r} tb_country_levels_number$n_subjects[3]` observations, representing `{r} round(tb_country_levels_number$prop[3], 2)`% of the data.
+
+::: callout-note
+The data is fairly balanced between the country levels.
+:::
+
+The following chunk is looking at the proportion of the `sex`'s variable levels in each `country`'s variable levels.
+
+@tbl-country-sex-levels-number shows the results & @fig-country-sex-levels-number a bar plot visualisation.
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: tbl-country-sex-levels-number
+#| tbl-cap: | 
+#|  The number of subjects for each sex - country pair corresponding levels
+#|  and their corresponding proportion in the data set.
+
+tb |>
+  summarise(
+    n_subjects = n() / n_obs_per_subject,
+    .by = c(country, sex)
+  ) |>
+  arrange(country, sex) |>
+  group_by(country) |>
+  mutate(prop_across_regions = n_subjects / sum(n_subjects)) |>
+  ungroup() |>
+  mutate(prop = n_subjects / sum(n_subjects)) |>
+  knitr::kable(align = "cccccc")
+```
+
+```{r}
+#| code-fold: true
+#| label: fig-country-sex-levels-number
+#| fig-cap: | 
+#|  The proportion of the sex's levels in country's levels
+
+tb |>
+  ggplot(aes(x = country, fill = sex)) +
+  geom_bar(position = "fill") +
+  labs(
+    title = "Proportion of sex for each region",
+    x = "Patient's country",
+    y = "Counts", 
+    fill = NULL
+  ) +
+  scale_y_continuous(labels = scales::percent) +
+  theme_bw() +
+  theme(
+    legend.direction = "horizontal",
+    legend.position = "bottom",
+  ) 
+```
+
+## The numerical variables
+
+### The `time` variable
+
+The `id` variable analysis showed that for each subject (i.e. for each level of the `id` variable) exactly 8 measurements -- taken at different times -- are available. For the time variable, we check if the corresponding measurement times for each subject are the same (i.e. if for each subject in the data set the 8 measurements are taken at the same time instances). Because of the small size of the data set, we can get and idea if this is true by looking at the plot of measurement times for each ID, @fig-time-measurements. (Plot done using log(times) for a better visualization).
+
+```{r}
+#| code-fold: true
+#| label: fig-time-measurements
+#| fig-cap: | 
+#|  The times of measurements for each subject in the data set.
+
+tb |>
+  ggplot(aes(x = id, y = log(time))) +
+  geom_point(color = "tomato") +
+  labs(
+    title = "Measurment times",
+    x = "Patient's ID",
+    y = "Log Time (days)", 
+  ) +
+  scale_y_continuous(breaks = seq(-2, 7, by = 2)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust=1)) +
+  theme_bw()
+```
+
+This can be checked rigorously via `pivot_wider`, pivoting the measurement times wider and checking if the value is unique in each time column. The next chunk is doing this.
+
+```{r}
+#| code-fold: true
+
+tb |>
+  select(id, time) |>
+  # pivot the tibble wider and get the time measurements 
+  pivot_wider(
+    names_from = time,
+    names_prefix = "t_",
+    values_from = time
+    ) |>
+  summarise(
+    across(starts_with("t_"), n_distinct)
+  ) |>
+  knitr::kable(align = "ccccccc")
+```
+
+Hence, it can be concluded that
+
+::: callout-note
+The corresponding measurement times for each subject are taken the same time instances.
+:::
+
+For all subjects in the data set, the measurements are taken at `{r} tb |> pull(time) |> unique()` days.
+
+### The `age` variable
+
+The following chunk is computing the density of `age` variable, showed in @fig-age-density.
+
+```{r}
+#| code-fold: true
+#| label: fig-age-density
+#| fig-cap: | 
+#|  The density of `age` variable.
+
+tb |>
+  ggplot(aes(x = age)) +
+  geom_density(color = "tomato", fill = "tomato", alpha = .5) +
+  labs(
+    title = "Age density",
+    x = "Age (years)",
+    y = "Density"
+  ) +
+  theme_bw()
+```
+
+The `age` variable seems to contain negative values. The following chunk filters the tibble for negative age values, showed in @tbl-age-negative
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: tbl-age-negative
+#| tbl-cap: | 
+#|  The subjects correponding ID's values for negative age values
+
+tb_negative_age <- tb |>
+  filter(age < 0) |>
+  distinct(id, age)
+
+tb_negative_age |>
+  knitr::kable(align = "cc")
+```
+
+There are two subjects with corresponding negative ages:
+
+-   subject `{r} tb_negative_age[1, 1]` which has the recorded corresponding age `{r} round(tb_negative_age[1, 2], 2)`,
+
+-   subject `{r} tb_negative_age[2, 1]` which has the recorded corresponding age `{r} round(tb_negative_age[2, 2], 2)`.
+
+::: callout-important
+The subjects appearing with negative age in the data are dropped.
+:::
+
+The following chunks drops the subjects with corresponds negative age.
+
+```{r}
+#| code-fold: true
+
+tb_clean <- tb |>
+  filter(age >= 0)
+```
+
+The conditional distributions of the `age` variable given the `sex` variable's levels are fairly close to each other, @fig-age-cond-density. This is not the case for the conditional distributions of the `age` variable given the `country` variable's levels: the age distribution for subjects from "West Africa" is significant different from the age distribution for subjects from "East Africa" and "Europe". (This is not very significant though, accounting for the small number of subjects, @tbl-country-levels-number.)
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: fig-age-cond-density
+#| fig-cap: "The conditional distribution of `age` given `sex` and `country` variables." 
+#| fig-subcap:
+#|   - ""
+#|   - ""
+#| layout-ncol: 2
+#| fig-width: 4
+
+tb_clean |>
+  ggplot(aes(x = age, color = sex, fill = sex)) +
+  geom_density(alpha = .5) +
+  labs(
+    title = "Age densities for sex levels",
+    x = "Age (year)",
+    y = "Density",
+    color = NULL,
+    fill = NULL
+  ) +
+  theme_bw() +
+  theme(
+    legend.direction = "horizontal",
+    legend.position = "bottom"
+  ) 
+
+
+tb_clean |>
+  ggplot(aes(x = age, color = country, fill = country)) +
+  geom_density(alpha = .5) +
+  labs(
+    title = "Age densities for region levels",
+    x = "Age (years)",
+    y = "Density",
+    color = NULL,
+    fill = NULL
+  ) +
+  theme_bw() +
+  theme(
+    legend.direction = "horizontal",
+    legend.position = "bottom"
+  ) 
+```
+
+In this case, looking at the median, IQR and range is more sensible. @tbl-age-sex-median and @tbl-age-country-median are showing the min, median, IQR and max for the `age` variable conditional on `sex` and `country` levels, respectively. The corresponding boxplots are showed in @fig-age-sex-country-boxplot.
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: tbl-age-sex-median
+#| tbl-cap: | 
+#|  The min, median, IQR and max for the `age` variable conditional on `sex` variable's levels.
+
+
+tb_clean |>
+  summarise(
+    min = min(age),
+    median = median(age),
+    IQR = IQR(age), 
+    max = max(age),
+    .by = sex
+  ) |>
+  knitr::kable(align = "ccccc")
+```
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: tbl-age-country-median
+#| tbl-cap: | 
+#|  The min, median, IQR and max for the `age` variable conditional on `country` variable's levels.
+
+tb_clean |>
+  summarise(
+    min = min(age),    
+    median = median(age),
+    IQR = IQR(age), 
+    max = max(age),
+    .by = country
+  )  |>
+  knitr::kable(align = "ccccc")
+```
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: fig-age-sex-country-boxplot
+#| fig-cap: "The boxplot of `age` variable given `sex` and `country` variables."
+#| fig-subcap:
+#|   - ""
+#|   - ""
+#| layout-ncol: 2
+#| fig-width: 4
+
+tb_clean |>
+  ggplot(aes(y = age, x = sex, fill = sex)) +
+  geom_boxplot(alpha = .5, show.legend = FALSE) +
+  labs(
+    title = "Age for sex levels",
+    x = "Sex",
+    y = "Age (years)"
+  )  +
+  theme_bw()
+
+tb_clean |>
+  ggplot(aes(y = age, x = country, fill = country)) +
+  geom_boxplot(alpha = .5, show.legend = FALSE) +
+  labs(
+    title = "Age for region levels",
+    x = "Region",
+    y = "Age (years)"
+  )  +
+  theme_bw()
+```
+
+Another thing that should be checked about `age` variable is the following: it seems the variable rather indicates the subject's age at the beginning of the experiment and it *does not* increment during the experiment, i.e. it does not account for the time passed between measurements. This can be checked by looking at the distinct values of `id` and `age` in the data set:
+
+```{r}
+#| code-fold: true
+
+tb_clean |>
+  nrow() / n_obs_per_subject == tb_clean |>
+  distinct(id, age) |>
+  nrow()
+```
+
+Hence, it can be concluded that
+
+::: callout-important
+The `age` variable represents the subject's age at the beginning of the experiment and it is not accounting for the time between measurements.
+:::
+
+Another variable `age_updated` that represents the subject's age at the time of each measurement is added to the tibble in case the analysis requires to take in account the age at the corresponding time instance of the measurement. The next chunk does this.
+
+```{r}
+#| code-fold: true
+
+tb_clean <- tb_clean |>
+  mutate(age_updated = age + time / 365) |>
+  relocate(age_updated, .after = age)
+
+tb_clean |>
+  head() |>
+  knitr::kable(align = "cccccccc")
+```
+
+### The `bmi` variable
+
+Acounting for the fact that the `age` variable does not represent the age at the time of each measurement but rather the subject's age at the beginning of the experiment, we start by checking if the `bmi` variable has the same interpretation, i.e. if it simply indicates the subject's body mass index at the start of the experiment and it does not capture the subject's BMI variation during the experiment:
+
+```{r}
+#| code-fold: true
+
+tb_clean |>
+  nrow() / n_obs_per_subject == tb_clean |>
+  distinct(id, bmi) |>
+  nrow()
+```
+
+Hence, it can be concluded that
+
+::: callout-note
+The `bmi` variable represents the subject's BMI at the beginning of the experiment and it is not accounting for the BMI variations during the experiment.
+:::
+
+As before, we look at the density of `bmi` variable. The next chunk computes the denisty, showed in @fig-bmi-density.
+
+```{r}
+#| code-fold: true
+#| label: fig-bmi-density
+#| fig-cap: | 
+#|  The density of `bmi` variable.
+
+tb_clean |>
+  ggplot(aes(x = bmi)) +
+  geom_density(color = "tomato", fill = "tomato", alpha = .5) +
+  labs(
+    title = "BMI density",
+    x = "BMI (kg/m²)",
+    y = "Density"
+  ) +
+  theme_bw()
+```
+
+The conditional densities and conditional boxplots (conditional on the categorical variables `sex` and `country`) are showed in @fig-bmi-densities-cond and @fig-bmi-boxplots-cond.
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: fig-bmi-densities-cond
+#| fig-cap: "The densities of `bmi` variable given `sex` and `country` variables."
+#| fig-subcap:
+#|   - ""
+#|   - ""
+#| layout-ncol: 2
+#| fig-width: 4
+
+
+
+tb_clean |>
+  ggplot(aes(x = bmi, color = sex, fill = sex)) +
+  geom_density(alpha = .5) +
+  labs(
+    title = "BMI densities for sex levels",
+    x = "BMI (kg/m²)",
+    y = "Density",
+    color = NULL,
+    fill = NULL
+  ) +
+  theme_bw() +
+  theme(
+    legend.direction = "horizontal",
+    legend.position = "bottom"
+  ) 
+
+tb_clean |>
+  ggplot(aes(x = bmi, color = country, fill = country)) +
+  geom_density(alpha = .5) +
+  labs(
+    title = "BMI densities for region levels",
+    x = "BMI (kg/m²)",
+    y = "Density",
+    color = NULL,
+    fill = NULL
+  ) +
+  theme_bw() +
+  theme(
+    legend.direction = "horizontal",
+    legend.position = "bottom"
+  )
+```
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: fig-bmi-boxplots-cond
+#| fig-cap: "The boxplots of `bmi` variable given `sex` and `country` variables."
+#| fig-subcap:
+#|   - ""
+#|   - ""
+#| layout-ncol: 2
+#| fig-width: 4
+
+tb_clean |>
+  ggplot(aes(y = bmi, x = sex, fill = sex)) +
+  geom_boxplot(alpha = .5, show.legend = FALSE) +
+  labs(
+    title = "BMI for sex levels",
+    x = "Sex",
+    y = "BMI (kg/m²)"
+  )  +
+  theme_bw()
+
+tb_clean |>
+  ggplot(aes(y = bmi, x = country, fill = country)) +
+  geom_boxplot(alpha = .5, show.legend = FALSE) +
+  labs(
+    title = "BMI for region levels",
+    x = "Region",
+    y = "BMI (kg/m²)"
+  )  +
+  theme_bw()
+```
+
+### The `abelisa` variable
+
+As before, we look at the density of `abelisa` variable. The next chunk computes the denisty, showed in @fig-abelisa-density,
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: fig-abelisa-density
+#| fig-cap: | 
+#|  The density of `abelisa` variable.
+
+tb_clean |>
+  ggplot(aes(x = abelisa)) +
+  geom_density(color = "tomato", fill = "tomato", alpha = .5) +
+  labs(
+    title = "Antibody concentration density",
+    x = "Antibody concentration (EU/mL)",
+    y = "Density"
+  )  +
+  theme_bw()
+```
+
+the conditional densities are showed in @fig-abelisa-sex-country-density
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: fig-abelisa-sex-country-density
+#| fig-cap: "The density of `abelisa` variable given `sex` and `country` variables."
+#| fig-subcap:
+#|   - ""
+#|   - ""
+#| layout-ncol: 2
+#| fig-width: 4
+
+tb_clean |>
+  ggplot(aes(x = abelisa, color = sex, fill = sex)) +
+  geom_density(alpha = .5) +
+  labs(
+    title = "Antibody conc. densities for sex levels",
+    x = "Antibody conc. (EU/mL)",
+    y = "Density",
+    color = NULL,
+    fill = NULL
+  ) +
+  theme_bw() +
+  theme(
+    legend.direction = "horizontal",
+    legend.position = "bottom"
+  )
+
+tb_clean |>
+  ggplot(aes(x = abelisa, color = country, fill = country)) +
+  geom_density(alpha = .5) +
+  labs(
+    title = "Antibody conc. densities for region levels",
+    x = "Antibody conc. (EU/mL)",
+    y = "Density",
+    color = NULL,
+    fill = NULL
+  ) +
+  theme_bw() +
+  theme(
+    legend.direction = "horizontal",
+    legend.position = "bottom"
+  )
+```
+
+and the conditional boxplots are showed in @fig-abelisa-sex-country-boxplot
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: fig-abelisa-sex-country-boxplot
+#| fig-cap: "The boxplot of `abelisa` variable given `sex` and `country` variables."
+#| fig-subcap:
+#|   - ""
+#|   - ""
+#| layout-ncol: 2
+#| fig-width: 4
+
+tb_clean |>
+  ggplot(aes(y = abelisa, x = sex, fill = sex)) +
+  geom_boxplot(alpha = .5, show.legend = FALSE) +
+  labs(
+    title = "Antibody concentration for sex levels",
+    x = "Sex",
+    y = "Antibody conc. (EU/mL)"
+  )  +
+  theme_bw()
+
+tb_clean |>
+  ggplot(aes(y = abelisa, x = country, fill = country)) +
+  geom_boxplot(alpha = .5, show.legend = FALSE) +
+  labs(
+    title = "Antibody concentration for region levels",
+    x = "Region",
+    y = "Antibody conc. (EU/mL)"
+  )  +
+  theme_bw()
+```
+
+The next chunk computes the antibody concentration during time for all subjects in the data frame and it's log version, showed in @fig-abelisa-all.
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: fig-abelisa-all
+#| fig-cap: | 
+#|  The antibody concentration during time for all subjects. 
+#| fig-subcap:
+#|   - ""
+#|   - ""
+#| layout-ncol: 2
+#| fig-width: 4
+
+tb_clean |>
+  ggplot(aes(x = time, y = abelisa, color = bmi, group = id)) +
+  geom_line() +
+  scale_color_distiller(palette = "RdPu") +
+  labs(
+    title = "Antibody concentration during time",
+    x = "Time (days)",
+    y = "Antibody conc. (EU/mL)",
+    color = "BMI"
+  ) +
+  theme_bw() +
+  theme(
+    legend.direction = "horizontal",
+    legend.position = "bottom"
+  )
+
+tb_clean |>
+  ggplot(aes(x = time, y = log(abelisa), color = bmi, group = id)) +
+  geom_line() +
+  scale_color_distiller(palette = "RdPu") +
+  labs(
+    title = "Antibody concentration during time",
+    x = "log(Time) (days)",
+    y = "log(Antibody conc.) (EU/mL)",
+    color = "BMI"
+  ) +
+  theme_bw() +
+  theme(
+    legend.direction = "horizontal",
+    legend.position = "bottom"
+  )
+```
+
+The next chunk computes the average antibody concentration during time (based on the subjects in the data frame) and it's log version, showed in @fig-abelisa-all-mean.
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: fig-abelisa-all-mean
+#| fig-cap: | 
+#|  The average antibody concentration during time. 
+#| fig-subcap:
+#|   - ""
+#|   - ""
+#| layout-ncol: 2
+#| fig-width: 4
+
+tb_clean |>
+  summarise(
+    mean_abelisa = mean(abelisa),
+    .by = time
+  ) |>
+  ggplot(aes(x = time, y = mean_abelisa)) +
+  geom_line(color = "tomato") +
+  labs(
+    title = "Average antibody concentration during time",
+    x = "Time (days)",
+    y = "Antibody conc. (EU/mL)"
+  ) +
+  theme_bw() +
+  theme(
+    legend.direction = "horizontal",
+    legend.position = "bottom"
+  )
+
+tb_clean |>
+  summarise(
+    mean_abelisa = mean(abelisa),
+    .by = time
+  ) |>
+  ggplot(aes(x = time, y = log(mean_abelisa))) +
+  geom_line(color = "tomato") +
+  labs(
+    title = "Average antibody concentration during time",
+    x = "Time (days)",
+    y = "Antibody conc. (EU/mL)"
+  ) +
+  theme_bw() +
+  theme(
+    legend.direction = "horizontal",
+    legend.position = "bottom"
+  )
+```
+
+The next chunk computes the antibody concentration during time for all subjects, for all levels of `country` and `sex` variables, showed in @fig-abelisa-all-per-levels.
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: fig-abelisa-all-per-levels
+#| fig-cap: | 
+#|  The antibody concentration during time for all subjects, for all levels of `country` and `sex` variables
+
+tb_clean |>
+  ggplot(aes(x = time, y = abelisa, color = bmi, group = id)) +
+  geom_line() +
+  facet_grid(sex ~ country) +
+  scale_color_distiller(palette = "RdPu") +
+  labs(
+    title = "Antibody concentration during time",
+    x = "Time (days)",
+    y = "Antibody conc. (EU/mL)",
+    color = "BMI"
+  ) +
+  theme_bw() +
+  theme(
+    legend.direction = "horizontal",
+    legend.position = "bottom"
+  )
+```
+
+The next chunk computes the antibody concentration during time for all subjects, individually, showed in @fig-abelisa-all-per-subject (for clarity, title and axis names are removed).
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: fig-abelisa-all-per-subject
+#| fig-cap: | 
+#|  The antibody concentration during time for all subjects, for all levels of `country` and `sex` variables
+#| fig-width: 12
+#| fig-height: 10
+tb_clean |>
+  ggplot(aes(x = time, y = abelisa)) +
+  geom_line(color = "tomato") +
+  facet_wrap(~ id) +
+  labs(
+    title = NULL,
+    x = NULL,
+    y = NULL
+  ) +
+  theme_bw()
+```
+
+The two aspects that are apparent in @fig-abelisa-all, @fig-abelisa-all-per-levels and fig-abelisa-all-per-subject are the following:
+
+-   A similar behavior (pattern) of the concentration levels during time (i.e. a very sudden increase followed by a slow decrease).
+-   Variation in behavior between subjects: the amplitude of the initial spike varies, the rate of decrease varies. This variation is (partially) explained by the subject particular physiology.
+
+## An approximation function
+
+The goal here is to find the analytical form of a exponential functional that can model the behavior of the antibody concentration during time.
+
+Importantly, the behavior will be considered starting with day 7, which effectively means the exclusion of the the first (time) measurement for each subject in the data frame.
+
+```{r}
+tb_after_7 <- tb_clean |>
+  filter(time != 0)
+```
+
+The antibody concentration is decreasing exponential and (apparently) platoes the following function is considered to model the antibody concentration:
+
+$$
+\begin{equation}
+f(t)
+=
+\phi_1 
++ 
+\left(
+\phi_2 - \phi_1
+\right) 
+\exp(- \phi_3 t)
+\end{equation}
+$$ {#eq-f-approx}
+
+The parameters are computed in the following chunk:
+
+```{r}
+range_abelisa_average <- tb_after_7 |>
+  summarise(
+    mean_abelisa = mean(abelisa),
+    .by = time
+  ) |>
+  pull(mean_abelisa) |>
+  range()
+range_abelisa_average
+
+range_time <- tb_after_7 |>
+  pull(time) |>
+  range()
+range_time
+```
+
+```{r}
+f_approx <- function(psi, time){
+  y_min <- psi[1]
+  y_max <- psi[2]
+  rate <- psi[3]
+  return(y_min + (y_max - y_min) * exp(-rate * time)) 
+}
+```
+
+```{r}
+time <- seq(range_time[1], range_time[2], 1)
+
+#psi_vals <- c(range_abelisa_average[1], range_abelisa_average[2], 0.007)
+psi_vals <- c(range_abelisa_average[1], range_abelisa_average[2], 0.0065)
+
+
+tb_f_approx <- tibble(
+  time  = time,
+  f = f_approx(psi_vals, time)
+)
+
+tb_f_approx
+```
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: fig-abelisa-vs-func-approx
+#| fig-cap: | 
+#|  Antibody concentration vs. approximation function
+#| fig-subcap:
+#|   - ""
+#|   - ""
+#| layout-ncol: 2
+#| fig-width: 4
+
+tb_after_7 |>
+  ggplot() +
+  geom_point(aes(x = time, y = abelisa, group = id), color = "tomato") +
+  geom_line(
+    aes(x = time, y = f), 
+    color = "darkseagreen",
+    linewidth = 1.5,
+    data = tb_f_approx
+    ) +
+  labs(
+    title = "Antibody concentration vs. approx. func.",
+    x = "Time (days)",
+    y = "Antibody conc. (EU/mL)",
+    color = "BMI"
+  ) +
+  theme_bw()
+
+tb_after_7 |>
+  summarise(
+    mean_abelisa = mean(abelisa),
+    .by = time
+  ) |>
+  ggplot(aes(x = time, y = mean_abelisa)) +
+  geom_point(color = "tomato") +
+  geom_line(
+    aes(x = time, y = f), 
+    color = "darkseagreen",
+    linewidth = 1.5,
+    data = tb_f_approx
+    ) +
+  labs(
+    title = "Average antibody conc. vs. approx func.",
+    x = "Time (days)",
+    y = "Antibody conc. (EU/mL)",
+    color = "BMI"
+  ) +
+  theme_bw()
+```
+
+## Non-linear (NL) model
+
+In the following,
+
+-   $m$ denotes the number of subjects,
+-   $n$ denotes the number of measurements (in this case the concentration measurements) for *each* subject taken at different time instants.
+
+The measurement corresponding to $i$^th^ patient at the $j$^th^ time instant is denoted by $y_{ij}$, with
+
+-   $i = 1, \ldots, m$, (in this case $m = 43$, accounting for the removed data with corresponding negative ages)
+-   $j = 1, \ldots, n$ (in this case $n = 8$).
+
+$y_{ij}$ is viewed as the dependent variable (in this case the `abelisa` variable representing the antibody concentration) of a *non-linear model*, writing
+
+$$
+\begin{equation}
+\begin{split}
+y_{ij} 
+= 
+f(\psib, t_j) 
++ 
+\epsilon_{ij}
+,
+\end{split}
+\end{equation}
+$$ {#eq-nlm}
+
+where
+
+-   $f$ represents a non-linear model,
+-   $t_j$ represents the $j$^th^ time instant,
+-   $\psib$ represents the parameters vector,
+-   $\epsilon_{ij}$ accounts for the modeling error and uncertainty.
+
+### One subject
+
+Before considering the model @eq-nlm accounting for all subjects, a single subject is considered. For illustration, @fig-abelisa-one-subject shows the evolution of the antibody concentration during time for subject ID1.
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: fig-abelisa-one-subject
+#| fig-cap: | 
+#|  The antibody concentration during time for subject ID1
+
+tb_after_7 |>
+  filter(id == "ID1") |>
+  ggplot(aes(x = time, y = abelisa)) +
+  geom_point(color = "tomato") + 
+  geom_line(
+    aes(x = time, y = f), 
+    color = "darkseagreen",
+    linewidth = 1.5,
+    data = tb_f_approx
+    ) +
+  labs(
+    title = "Antibody concentration during time for subject ID1",
+    x = "Time (days)",
+    y = "Antibody conc. (EU/mL)"
+  ) +
+  theme_bw()
+```
+
+In this case, the model writes
+
+$$
+\begin{equation}
+\begin{split}
+y_{j} = f(\psib, t_j) + \epsilon_j,
+\end{split}
+\end{equation}
+$$ {#eq-nlm-one}
+
+i.e. the subject's index $i$ is dropped and the only measurement variation is due to the measurement timing, with the least-squares estimate given by
+
+$$
+\begin{equation}
+\begin{split}
+\widehat{\psib}
+=
+\arg\min_{\psib}
+\sum_{j=1}^{n}
+\left(
+y_j
+-
+f(\psib, t_j)
+\right)^2
+\end{split}
+\end{equation}
+$$ {#eq-nlm-one-ls}
+
+with
+
+$$
+\begin{equation}
+\begin{split}
+\psib
+=
+\begin{bmatrix}
+\phi_1 & \phi_2 & \phi_3
+\end{bmatrix}
+.
+\end{split}
+\end{equation}
+$$ {#eq-param}
+
+```{r}
+#| code-fold: true
+#| warning: false
+
+nls_sub_1 <- nls(
+  abelisa ~ f_approx(psi, time),
+  data = tb_after_7 |> filter(id == "ID1"),
+  start = list(psi = psi_vals)
+  )
+
+nls_sub_1
+
+broom::tidy(nls_sub_1) |>
+  knitr::kable(align = "ccc")
+```
+
+```{r}
+#| code-fold: true
+#| warning: false
+
+tb_sub_1_pred <- tb_f_approx |>
+  mutate(
+  prediction = predict(nls_sub_1, newdata = tb_f_approx)  
+  )
+tb_sub_1_pred
+```
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: fig-abelisa-sub_1-vs-nlm-pred
+#| fig-cap: | 
+#|  The antibody concentration during time for subject ID1 vs. approximation function (green) vs. NLM prediction (blue)
+
+tb_after_7 |>
+  filter(id == "ID1") |>
+  ggplot(aes(x = time, y = abelisa)) +
+  geom_point(color = "tomato") +
+  geom_line(
+    aes(x = time, y = f), 
+    color = "darkseagreen",
+    linewidth = 1.5,
+    data = tb_sub_1_pred
+    ) +
+  geom_line(
+    aes(x = time, y = prediction), 
+    color = "lightblue",
+    linewidth = 1.5,
+    data = tb_sub_1_pred
+    ) +
+  labs(
+    title = "Antibody concentration vs. NLM pred",
+    x = "Time (days)",
+    y = "Antibody conc. (EU/mL)",
+    color = "BMI"
+  ) +
+  theme_bw()
+```
+
+### Multiple subjects
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: fig-abelisa-all-subjects
+#| fig-cap: | 
+#|  The antibody concentration during time for all subjects vs. approximation function 
+
+tb_after_7 |>
+  ggplot(aes(x = time, y = abelisa)) +
+  geom_point(color = "tomato") +
+  geom_line(
+    aes(x = time, y = f), 
+    color = "darkseagreen",
+    linewidth = 1.5,
+    data = tb_f_approx
+    ) +
+  labs(
+    title = "Antibody concentration during time for all subjects",
+    x = "Time (days)",
+    y = "Antibody conc. (EU/mL)"
+  ) +
+  theme_bw()
+```
+
+The model for multiple subjects is given by @eq-nlm and the LS estimate is given by
+
+$$
+\begin{equation}
+\begin{split}
+\widehat{\psib}
+=
+\arg\min_{\psib}
+\sum_{i=1}^{m}
+\sum_{j=1}^{n}
+\left(
+y_{ij}
+-
+f(\psib, t_j)
+\right)^2
+\end{split}
+\end{equation}
+$$ {#eq-nlm-ls}
+
+```{r}
+#| code-fold: true
+#| warning: false
+
+nls_sub_all <- nls(
+  abelisa ~ f_approx(psi, time),
+  data = tb_after_7,
+  start = list(psi = psi_vals)
+  )
+
+nls_sub_all
+
+broom::tidy(nls_sub_all) |>
+  knitr::kable(align = "ccc")
+```
+
+```{r}
+#| code-fold: true
+#| warning: false
+
+tb_sub_all_pred <- tb_f_approx |>
+  mutate(
+  prediction = predict(nls_sub_all, newdata = tb_f_approx)  
+  )
+# tb_sub_all_pred
+```
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: fig-abelisa-all-vs-nlm-pred
+#| fig-cap: | 
+#|  The antibody concentration during time for all subjects and vs. approximation function (green) vs. NLM prediction (blue)
+
+tb_after_7 |>
+  ggplot(aes(x = time, y = abelisa)) +
+  geom_point(color = "tomato") +
+  geom_line(
+    aes(x = time, y = f), 
+    color = "darkseagreen",
+    linewidth = 1.5,
+    data = tb_sub_all_pred
+    ) +
+  geom_line(
+    aes(x = time, y = prediction), 
+    color = "lightblue",
+    linewidth = 1.5,
+    data = tb_sub_all_pred
+    ) +
+  labs(
+    title = "Antibody concentration vs. NLM pred",
+    x = "Time (days)",
+    y = "Antibody conc. (EU/mL)",
+    color = "BMI"
+  ) +
+  theme_bw()
+```
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: fig-abelisa-all-invidiual-vs-nlm-pred
+#| fig-cap: | 
+#|  The antibody concentration during time for all subjects and the NLM  prediction
+#| fig-width: 12
+#| fig-height: 10
+
+tb_after_7 |>
+  ggplot(aes(x = time, y = abelisa)) +
+  geom_point(color = "tomato") +
+  geom_line(
+    aes(x = time, y = prediction), 
+    color = "lightblue",
+    linewidth = 1.5,
+    data = tb_sub_all_pred
+    ) +
+  labs(
+    title = NULL,
+    x = NULL,
+    y = NULL,
+    color = NULL
+  ) +
+  facet_wrap(~ id) +
+  theme_bw()
+```
+
+### Multiple models fitted on multiple subjects
+
+```{r}
+#| code-fold: true
+#| warning: false
+
+n_subjects <- tb_after_7 |>
+  pull(id) |>
+  n_distinct()
+
+available_ids_vec <- tb_after_7 |>
+  pull(id) |>
+  unique() |>
+  as.character() |>
+  parse_number()
+
+sub_indiv <- tibble()
+
+set.seed(43)
+
+psi_vals <- c(range_abelisa_average[1], range_abelisa_average[2], 0.0065)
+
+for(i in available_ids_vec){
+  nls_sub_i <- nls(
+    abelisa ~ f_approx(psi, time),
+    data = tb_after_7 |> filter(id == str_c("ID", i)),
+    start = list(psi = psi_vals)
+    )  
+  
+  tb_sub_i_pred <- tibble(
+    time = time,
+    id = rep(str_c("ID", i), length(time))
+    ) 
+  
+  tb_sub_i_pred <- tb_sub_i_pred |>
+    mutate(pred = predict(nls_sub_i, newdata = tb_sub_i_pred))
+  
+  sub_indiv <- bind_rows(sub_indiv, tb_sub_i_pred)
+  }
+
+sub_indiv <- sub_indiv |>
+  relocate(id, .before = time) |>
+  mutate(
+    id = factor(id, ordered = TRUE)
+  )
+sub_indiv
+```
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| label: fig-abelisa-all-invidiual-vs-nlm-individual-pred
+#| fig-cap: | 
+#|  The antibody concentration during time for all subjects and the NLM individual predictions
+#| fig-width: 12
+#| fig-height: 10
+
+tb_after_7 |>
+  ggplot() +
+  geom_point(
+    aes(x = time, y = abelisa, group = id),
+    color = "tomato",
+    size = 2
+  ) +
+  geom_line(
+    data = sub_indiv,
+    aes(x = time, y = pred, group = id),
+    color = "darkseagreen",
+    linewidth = 1
+  ) +
+  labs(
+    title = NULL,
+    x = NULL,
+    y = NULL,
+    color = NULL
+  ) +
+  facet_wrap( ~ id)
+```
+
+## Non-linear mixed effects (NLME) model - no covariates
+
+Will be done via stochastic approximation expectation maximization (SAEM) using the `saemix` package.
+
+First thing: account for the specificity of `saemix` which expects the `id` column in the data frame to be of numerical type. The next chunk is re-transforming the `id` column in the tibble into a numerical variable and parse the numerical value (i.e. removes "ID" from "IDi")
+
+```{r}
+#| code-fold: true
+#| warning: false
+
+tb_after_7 <- tb_after_7 |>
+  mutate(
+    id = parse_number(as.character(id))
+    )
+tb_after_7
+```
+
+The next chunk is defining the data as a `saemix` object, via `saemixData`. 
+
+```{r}
+#| code-fold: true
+
+saemix_data_nlme <- saemixData(
+  name.data = tb_after_7,
+  name.group = "id",
+  name.predictors = "time",
+  name.response = "abelisa",
+  units = list(x = "Days", y = "EU/ml"),
+  automatic = TRUE
+)
+```
+
+```{r}
+saemix_data_nlme
+```
+
+The next chunk implements the function from @eq-f-approx:
+
+```{r}
+#| code-fold: true
+
+function_approx <- function(psi, id, xidep){
+  time <- xidep[, 1]
+  y_min <- psi[id, 1]
+  y_max <- psi[id, 2]
+  rate <- psi[id, 3]
+  fpred <- y_min + (y_max - y_min) * exp(-rate * time)
+  return(fpred)
+}
+#function_approx
+```
+
+The next chunk is defining the nlme model as a `saemix` object, via `saemixModel` function. The model is given by @eq-f-approx, the initial values for $\phi_1$ and $\phi_2$ are set via the range computed over the complete data and the rate $r$ is set at $0.05$. The model considers random effects on all three parameters & constant variance, `error.model = "constant"`. 
+
+```{r}
+#| code-fold: true
+
+saemix_model_nlme <- saemixModel(
+  model = function_approx,
+  description = "Approx function", 
+  psi0 = matrix(
+    c(1.6, 4.9, 0.05),
+    ncol = 3, 
+    byrow = TRUE, 
+    dimnames = list(NULL, c("y_min", "y_max", "rate"))),
+  transform.par = c(0, 0, 1),   # log-transform rate only
+  covariance.model = diag(1, 3),  # random effects on all
+  error.model = "constant"
+  )
+# saemix_model_nlme
+```
+
+The next chunk is defining the nlme model's parameters as a (regular R) list:
+
+```{r}
+#| code-fold: true
+
+saemix_options_nlme <- list(
+  seed = 42,
+  save = FALSE, 
+  save.graph = FALSE,
+  displayProgress = FALSE,
+  print = FALSE
+  )
+#saemix_options_nlme
+```
+
+The next chunk is fitting the nlme model, a `saemix` object, created via `saemix` function.
+
+```{r}
+#| code-fold: true
+
+saemix_fit_nlme <- saemix(
+  saemix_model_nlme,
+  saemix_data_nlme,
+  saemix_options_nlme
+  )
+# saemix_fit_nlme
+```
+
+The results are
+
+```{r}
+saemix_fit_nlme@results
+```
+
+```{r}
+saemix_fit_nlme@results@fixed.effects
+```
+
+The following chunk plots the comparison between the observed and the (individual and population) prediction for subject 1:
+
+```{r}
+#| code-fold: true
+
+fit_with_preds <- saemix.predict(saemix_fit_nlme)
+tb_data <- fit_with_preds@data@data
+tb_predictions <- fit_with_preds@results@predictions
+
+tb_complete <- cbind(tb_data, tb_predictions)
+
+ggplot(subset(tb_complete, id == 1), aes(x = time)) +
+  geom_point(aes(y = abelisa, color = "Observed"), size = 2) +
+  geom_line(aes(y = ipred, color = "Individual prediction"), linewidth = 1.5) +
+  geom_line(aes(y = ppred, color = "Population prediction"), linewidth = 1.5, linetype = "dashed") +
+  scale_color_manual(
+    name = NULL,
+    values = c(
+      "Observed" = "tomato",
+      "Individual prediction" = "darkseagreen",
+      "Population prediction" = "violet"
+    )
+  ) +
+  labs(
+    title = str_c("Subject", 1, ": Obs vs. Pred", sep = " "),
+    x = "Time",
+    y = "Antibody levels (EU/ml)"
+  ) +
+  theme_bw() +
+  theme(
+    legend.direction = "horizontal",
+    legend.position = "bottom",
+  )
+```
+
+The following chunk plots the comparison between the observed and the (individual and population) prediction for the subjects in the data set. 
+
+```{r}
+#| code-fold: true
+#| warning: false
+#| fig-width: 12
+#| fig-height: 10
+
+ggplot(tb_complete, aes(x = time)) +
+  geom_point(aes(y = abelisa), color = "tomato", size = 2) +
+  geom_line(aes(y = ipred), color = "darkseagreen", linewidth = 1.5) +
+  geom_line(aes(y = ppred), color = "violet", linewidth = 1.5, linetype = "dashed") +
+  labs(
+    title = NULL,
+    x = NULL,
+    y = NULL
+  ) +
+  facet_wrap(~ id) +
+  theme_bw()
+```
+
+
+```{r}
+#| code-fold: true
+#| label: fig-fixed-effects-iterations
+#| fig-cap: "Fixed effects during iterations"
+#| fig-subcap: 
+#|   - "y_min"
+#|   - "y_max"
+#|   - "rate"
+#| fig-width: 3
+#| layout-ncol: 3
+
+psi <- psi(saemix_fit_nlme) |>
+  as_tibble() |>
+  rowid_to_column("iteration")
+
+psi |>
+  ggplot(aes(x = iteration, y = y_min)) +
+  geom_line(color = "tomato") +
+  labs(
+    x = "Iteration",
+    y = "y_min"    
+  ) +
+  theme_bw()
+
+psi |>
+  ggplot(aes(x = iteration, y = y_max)) +
+  geom_line(color = "tomato") +
+  labs(
+    x = "Iteration",
+    y = "y_max"    
+  ) +
+  theme_bw()
+
+psi |>
+  ggplot(aes(x = iteration, y = rate)) +
+  geom_line(color = "tomato") +
+  labs(
+    x = "Iteration",
+    y = "rate"    
+  ) +
+  theme_bw()
+```
+
+## Non-linear mixed effects (NLME) model - covariates
+
+```{r}
+#| code-fold: true
+#| warning: false
+
+saemix_data_nlme <- saemixData(
+  name.data = tb_after_7,
+  name.group = "id",
+  name.predictors = "time",
+  name.response = "abelisa",
+  name.covariates = "age_centered",
+  units = list(x = "Days", y = "EU/ml"),
+  automatic = TRUE
+)
+```
+
+```{r}
+saemix_data_nlme
+```
+
+The decay rate $\phi_3$ is assumed to depend on `age` through a linear relationship on the log scale, i.e. 
+
+$$
+\begin{equation}
+\log(\psi^{i}_3)
+=
+\log(\psi_3)
++
+\beta_{\text{age}}
+\left(
+\text{age}_i
+-
+\overline{\text{age}}
+\right)
++
+\nu^{i}
+.
+\end{equation}
+$${#eq-log-scale-regression-age}
+
+
+```{r}
+tb_after_7 <- tb_after_7|>
+  mutate(
+    age_centered = age - mean(tb_after_7$age, na.rm = TRUE)
+  )
+```
+
+
+```{r}
+covariate_model_matrix <- matrix(
+  c(0, 0, 1),  # only rate is affected by age
+  ncol = 1,
+  byrow = TRUE,
+  dimnames = list(
+    c("y_min", "y_max", "rate"),       # parameter names
+    c("age_centered")                  # covariate name
+  )
+)
+```
+
+
+```{r}
+saemix_model_nlme <- saemixModel(
+  model = function_approx,
+  description = "Exponential decay with age effect on rate",
+  psi0 = matrix(
+    c(1.6, 4.9, 0.05),  # Initial estimates
+    ncol = 3,
+    byrow = TRUE,
+    dimnames = list(NULL, c("y_min", "y_max", "rate"))
+  ),
+  transform.par = c(0, 0, 1),
+  covariance.model = diag(1, 3),  # Random effects on all
+  covariate.model = covariate_model_matrix,
+  error.model = "constant"
+)
+```
+
+
+```{r}
+saemix_fit_nlme <- saemix(
+  saemix_model_nlme,
+  saemix_data_nlme,
+  saemix_options_nlme
+  )
+```
+
+```{r}
+# saemix_fit_nlme@results
+```
+
+```{r}
+# saemix_fit_nlme@results@fixed.effects
+```
+
+```{r}
+#| code-fold: true
+#| warning: false
+
+# Fit nonlinear mixed model
+# nlme_sub_all <- nlme(
+#   model = abelisa ~ f_approx_2(y_min, y_max, rate, time),
+#   data = tb_after_7,
+#   fixed = y_min + y_max + rate ~ 1,
+#   random = y_min ~ 1 | id,
+#   start = psi_vals,
+#   control = nlmeControl(msMaxIter = 200)
+#   )
+# 
+# nlme_sub_all
+
+
+# nlme_fit <- nlme(
+#   model = y ~ logistic_model(Asym, Rate, xmid, time),
+#   data = data,
+#   fixed = Asym + Rate + xmid ~ 1,
+#   random = Asym + Rate ~ 1 | subject,  # Random effects on Asym and Rate
+#   start = c(Asym = 90, Rate = 0.2, xmid = 4.5),
+#   control = nlmeControl(msMaxIter = 200)
+# )
+# 
+# nlme_fit
+
+
+#broom::tidy(nlme_sub_all) |>
+#  knitr::kable(align = "ccc")
+```
+
+## The model proposed by [@pasin2019]
+
+The non-linear model proposed in [@pasin2019] based on three compartments, i.e. the SL cells ($S$), the LL cells ($L$) and the antibodies ($A$) writes
+
+$$
+\begin{equation}
+\begin{split}
+\frac{\d S}{\d t} 
+&
+= 
+-
+\delta_S S
+,
+\\
+\frac{\d L}{\d t} 
+&
+= 
+-
+\delta_L L
+, 
+\\
+\frac{\d A}{\d t} 
+&
+= 
+\theta_S S
++
+\theta_L L 
+-
+\delta_S A
+,
+\end{split}
+\end{equation}
+$${#eq-ode-0}
+
+with 
+
+* $\delta_S$ representing the decay rate over time of the long-lived (SL) antibody-secreting cells,
+
+* $\theta_S$ representing the antibodies production rate of SL antibody-secreting cells,
+
+* $\delta_L$ representing the decay rate over time of the long-lived (LL) antibodies,
+
+* $\theta_L$ representing the antibodies production rate of LL antibody-secreting cells,
+
+* $\delta_A$ representing the decay rate of antibodies.
+
+The equation for the antibodies $A$ is the non-homogeneous linear ordinary differential equation (ODE) given by:
+
+$$
+\begin{equation}
+\frac{\d A}{\d t} 
+= 
+\phi_S 
+\exp{\left(-\delta_S t \right)}
++ 
+\phi_L 
+\exp{\left( -\delta_L t \right)}
+- 
+\delta_A
+A
+,
+\end{equation}
+$${#eq-ode-1}
+
+with 
+
+$$
+\begin{equation}
+\phi_S = \theta_S S_0,
+\quad
+S_0 = S(0)
+,
+\end{equation}
+$$ {#eq-ode-1a}
+
+and
+$$
+\begin{equation}
+\phi_L = \theta_L L_0,
+\quad
+L_0 = L(0)
+,
+\end{equation}
+$$ {#eq-ode-1b}
+
+@eq-ode-1 writes
+
+$$
+\begin{equation}
+\frac{\d A}{\d t} 
++ \delta_A A 
+= 
+\phi_S \exp(-\delta_S t) 
++
+\phi_L \exp(-\delta_L t)
+\end{equation}
+$${#eq-ode-2}
+
+or equivalently
+
+$$
+\begin{equation}
+\frac{\d A}{\d t} + P(t) A = Q(t)
+\end{equation}
+$${#eq-ode-3}
+
+with:
+
+* $P(t) = \delta_f$ (i.e. constant),
+* $Q(t) = \phi_S \exp(-\delta_S t) + \phi_L \exp(-\delta_L t)$.
+
+The homogeneous equation writes
+
+$$
+\begin{equation}
+\frac{\d A}{\d t} 
++ 
+\delta_A
+A 
+= 
+0
+,
+\end{equation}
+$${#eq-ode-4}
+
+with the solution
+
+$$
+\begin{equation}
+A_h(t) 
+= 
+c 
+\exp(-\delta_A t)
+,
+\end{equation}
+$${#eq-ode-5}
+
+with $c$ a constant determined by the initial conditions (i.e $A(0)$). The non-homogeneous part can be solved using an integrating factor. Let the integrating factor be  
+
+$$
+\begin{equation}
+\mu(t) 
+= 
+\exp{
+\left(
+\int \delta_A \d t
+\right) 
+}
+= 
+\exp{(\delta_A t)}
+,
+\end{equation}
+$${#eq-ode-6}
+
+and multiplying by the integrating factor, @eq-ode-2 writes
+
+$$
+\begin{equation}
+\begin{split}
+\frac{\d{} }{\d t} 
+\left( 
+\exp(\delta_f t) f(t) 
+\right) 
+&
+= 
+\phi_S 
+\exp
+\left( 
+(\delta_A - \delta_S) t 
+\right) 
+\\
+&
++ 
+\phi_L 
+\exp
+\left(
+(\delta_A - \delta_L) t 
+\right)
+.
+\end{split}
+\end{equation}
+$${#eq-ode-7}
+
+Integrating both sides (with respect to $t$) writes:
+
+$$
+\begin{equation}
+\begin{split}
+\exp(\delta_A t) f(t) 
+&
+= 
+\phi_S
+\int 
+\exp{
+\left( (\delta_A - \delta_S) t \right)
+} 
+\d t
+\\
+&
++ 
+\phi_L
+\int 
+\exp{
+\left( (\delta_A - \delta_L) t \right)
+} 
+\d t
+.
+\end{split}
+\end{equation}
+$${#eq-ode-8}
+
+The first integral writes
+
+$$
+\begin{equation}
+\int 
+\exp
+\left( 
+(\delta_A - \delta_S) 
+t 
+\right) 
+\d t 
+= 
+\frac{1}{\delta_A - \delta_S} 
+\exp
+\left(
+(\delta_A - \delta_S) 
+t 
+\right)
++ 
+c_1
+,
+\end{equation}
+$$ {#eq-ode-9}
+
+and the second integral writes
+
+$$
+\begin{equation}
+\int 
+\exp
+\left( 
+(\delta_A - \delta_L) 
+t 
+\right) 
+\d t 
+= 
+\frac{1}{\delta_A - \delta_L}
+\exp
+\left(
+(\delta_A - \delta_L) 
+t 
+\right)
++ 
+c_2
+.
+\end{equation}
+$${#eq-ode-10}
+
+Plugging @eq-ode-9 and @eq-ode-10 in @eq-ode-8 writes
+
+$$
+\begin{equation}
+\begin{split}
+\exp(\delta_A t) f(t) 
+&
+= 
+\frac{\phi_S}{\delta_A - \delta_S} 
+\exp
+\left(
+(\delta_A - \delta_S) 
+t 
+\right)
+\\
+&
++ 
+\frac{\phi_L}{\delta_A - \delta_L}
+\exp
+\left(
+(\delta_A - \delta_L) 
+t 
+\right)
+\\
+&
++
+c
+.
+\end{split}
+\end{equation}
+$${#eq-ode-11}
+
+hence
+
+$$
+\begin{equation}
+\begin{split}
+A(t) 
+&
+= 
+c 
+\exp(-\delta_A t) 
+\\
+&
++ 
+\frac{\phi_S}{\delta_A - \delta_S} 
+\exp \left( -\delta_S t \right) 
+\\
+&
++ 
+\frac{\phi_L}{\delta_A - \delta_L}
+\exp \left( -\delta_L t \right)
+,
+\end{split}
+\end{equation}
+$$ {#eq-ode-12}
+
+with $c$ a constant determined by the initial condition (i.e. $A(0)$) plugged-in from the data, i.e. the `abelisa` value corresponding to the second time instance measurement (i.e. the 7 days corresponding measurement). Assuming the second time instance measurement is $A(0) = a$, the constant writes
+
+$$
+\begin{equation}
+c 
+=
+a 
+- 
+\frac{\phi_S}{\delta_A - \delta_S} 
+-
+\frac{\phi_L}{\delta_A - \delta_L}
+.
+\end{equation}
+$${#eq-ode-13}
+
+Let $\psib$ denote the vector of parameters for the decay rates (LL antibodies, SL antibodies and antibodies) and $\phi_S$ and $\phi_L$
+
+$$
+\begin{equation}
+\psib =
+\begin{bmatrix}
+\phi_S & \delta_S & \phi_L & \delta_L & \delta_{Ab} 
+\end{bmatrix}
+.
+\end{equation}
+$$ {#eq-param-vec}
+
+The following mixed-effect model each parameter $\xi_{k}$, with $k = 1, \ldots, 5$ is considered:
+
+$$
+\begin{equation}
+\log{\left( \xi_{k}^{i} \right)}
+=
+\log{\left( \xi_{k0} \right)} 
++
+\betab^{T}_{k}
+\zrvb_{k}^{i}
++
+\nu_{k}^{i}
+,
+\end{equation}
+$$ {#eq-nlme-model}
+
+where
+
+* $\xi^{i}_{k}$ represents the $k$^th^ parameters corresponding to the $i$^th^ subject,
+
+* $\xi_{k0}$ represents the *fixed effect* corresponding to the $k$^th^ element of the parameters vector,
+
+* $\zrvb^{i}_{k}$ represents the vector of independent variables of the model,
+
+* $\betab_{k}$ represents the coefficents corresponding to $\zrv^{i}_{k}$,
+
+* $\nu^{i}_{k}$ represents the *individual effect*, assumed to 
+
+  * follow a centered normal distributed with variance $\omega_{k}^{2}$ 
+
+  $$
+  \begin{equation}
+  \nu^{i}_{k}
+  \sim
+  \Normal{0, \omega_{k}^{2}}
+  \end{equation}
+  $$  {#eq-nlme-model-1}
+  
+  * be mutually independent
+  
+  $$
+  \begin{equation}
+  \nu^{i}_{k} \indep \nu^{j}_{l}
+  \end{equation}
+  $$ {#eq-nlme-model-2}
+
+
+The antibody concentration for patient $i$ at the $j$th time instance measurement is assumed to be an additional error model
+
+$$
+\begin{equation}
+\yrv_{ij}
+=
+\log_{10}
+\left(
+A(\psib^{i},t_{ij})
+\right)
++
+\epsilon_{ij}
+,
+\end{equation}
+$$ {#eq-nlme-model-3}
+
+with the noise following a centered normal distributed with the same variance $\omega_{A}^{2}$ (homoscedasticity), i.e.
+
+$$
+\begin{equation}
+\epsilon_{ij}
+\sim
+\Normal{0, \sigma_{A}^{2}}
+.
+\end{equation}
+$$ {#eq-nlme-model-4}
+
+The complete set of model's parameters is 
+
+$$
+\begin{equation}
+\thetab
+=
+\begin{bmatrix}
+\left( \xi_{k0} \right)_{k = 1, 5}
+&
+\left( \betab_{k} \right)_{k = 1, 5}
+&
+\left( \omega_{k} \right)_{k = 1, 5}
+&
+\sigma_{A}
+\end{bmatrix}
+\end{equation}
+$$ {#eq-nlme-model-5}
+
+Centering the age in the data:
+
+```{r}
+tb_clean_centered <- tb_clean |>
+  mutate(age_centered = age - mean(age)) |>
+  relocate(age_centered, .after = age) |>
+  select(-c(age, age_updated))
+
+# tb_clean_grouped <- groupedData(
+#   abelisa ~ time | id, 
+#   data = tb_clean_centered
+#   )
+
+
+tb_after_7_centered <- tb_after_7 |>
+  mutate(age_centered = age - mean(age)) |>
+  relocate(age_centered, .after = age) |>
+  select(-c(age, age_updated))
+
+# tb_after_7_grouped <- groupedData(
+#   abelisa ~ time | id, 
+#   data = tb_after_7_centered
+#   )
+```
+
+
+
+```{r}
+# # consntat corresponding to intial values
+# c_const <- 100
+# 
+# # Nonlinear function with log-parameters and fixed c
+# f_model_log <- function(time, log_phi_S, log_phi_L, log_delta_A, log_delta_S, log_delta_L) {
+#   phi_S <- exp(log_phi_S)
+#   phi_L <- exp(log_phi_L)
+#   delta_A <- exp(log_delta_A)
+#   delta_S <- exp(log_delta_S)
+#   delta_L <- exp(log_delta_L)
+# 
+#   c_const * exp(-delta_A * time) +
+#     (phi_S / (delta_A - delta_S)) * exp(-delta_S * time) +
+#     (phi_L / (delta_A - delta_L)) * exp(-delta_L * time)
+# }
+# 
+# # Starting values (log-scale for parameters)
+# start_vals <- c(
+#   log_phi_S = log(50),
+#   log_phi_L = log(30),
+#   log_delta_A = log(0.0005),
+#   log_delta_S = log(0.005),
+#   log_delta_L = log(0.001)
+# )
+# 
+# # Fit nlme model:
+# nlme_model <- nlme(
+#   abelisa ~ f_model_log(time, log_phi_S, log_phi_L, log_delta_A, log_delta_S, log_delta_L),
+#   
+#   # Data: 
+#   data = tb_after_7_centered,
+# 
+#   # Fixed effects:
+#   fixed = list(
+#     log_phi_S ~ sex + age_centered + bmi + country,
+#     log_phi_L ~ sex + age_centered + bmi + country,
+#     log_delta_A ~ sex + age_centered + bmi + country,
+#     log_delta_S + log_delta_L ~ 1  # no covariates on delta S and L params
+#   ),
+# 
+#   # Random effects on log_phi_S, log_phi_L, per subject
+#   random = pdDiag(log_phi_S + log_phi_L ~ 1 | id),
+# 
+#   start = start_vals,
+# 
+#   control = nlmeControl(
+#     pnlsTol = 0.1, 
+#     msMaxIter = 100, 
+#     msMaxEval = 1000
+#   )
+# )
+# 
+# summary(nlme_model)
+```
+

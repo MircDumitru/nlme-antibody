@@ -1,0 +1,7 @@
+\newcommand{\xb}{\bm{x}}
+\newcommand{\Xb}{\bm{X}}
+\newcommand{\zb}{\bm{z}}
+\newcommand\zrv{\mathrm{z}}
+\newcommand\zrvb{\bm{\mathrm{z}}}
+\newcommand\yrv{\mathrm{y}}
+\newcommand\yrvb{\bm{\mathrm{y}}}

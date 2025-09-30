@@ -1,0 +1,33 @@
+{
+    "id": "03844AF3",
+    "path": "~/Desktop/ebola/ebola.qmd",
+    "project_path": "ebola.qmd",
+    "type": "quarto_markdown",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1758874058415.0,
+    "source_on_save": false,
+    "relative_order": 5,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "1739,32",
+        "scrollLine": "1720",
+        "content_preview_enabled": "false",
+        "content_preview_inline": "false",
+        "rmdVisualMode": "false",
+        "rmdVisualWrapConfigured": "true",
+        "docOutlineVisible": "0",
+        "rmdVisualModeLocation": "37649:33476.5",
+        "rmdVisualCollapsedChunks": ""
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1759175365,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1759175365708,
+    "read_only": false,
+    "read_only_alternatives": []
+}

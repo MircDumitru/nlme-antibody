@@ -1,0 +1,574 @@
+## The article model
+
+
+::: content-hidden
+$$
+{{< include _macros.tex >}}
+{{< include _packages.tex >}}
+$$
+:::
+
+```{r}
+#| echo: false
+
+source("_settings.R")
+```
+
+## Introduction
+
+### Prerequisites
+
+```{r}
+#| warning: false
+#| message: false
+
+library(tidyverse)  # tidyverse 
+library(nlme)       # non-linear mixed effect models
+library(saemix)     # nlme package for saemix objects
+```
+
+
+## [@pasin2019] article
+
+
+```{r}
+#| code-fold: true
+#| message: false
+#| warning: false
+
+
+tb <- read_csv("data/data_ebola_ab.csv")
+
+tb <- tb |>
+  # clean the names
+  janitor::clean_names() |>
+  # transform chr into factors
+  mutate(across(where(is.character), fct))
+
+tb_clean <- tb |>
+  filter(age >= 0)
+
+tb_clean <- tb_clean |>
+  mutate(age_updated = age + time / 365) |>
+  relocate(age_updated, .after = age)
+
+tb_after_7 <- tb_clean |>
+  filter(time != 0)
+```
+
+
+The non-linear model proposed in [@pasin2019] based on three compartments, i.e. the SL cells ($S$), the LL cells ($L$) and the antibodies ($A$) writes
+
+$$
+\begin{equation}
+\begin{split}
+\frac{\d S}{\d t} 
+&
+= 
+-
+\delta_S S
+,
+\\
+\frac{\d L}{\d t} 
+&
+= 
+-
+\delta_L L
+, 
+\\
+\frac{\d A}{\d t} 
+&
+= 
+\theta_S S
++
+\theta_L L 
+-
+\delta_S A
+,
+\end{split}
+\end{equation}
+$${#eq-ode-0}
+
+with 
+
+* $\delta_S$ representing the decay rate over time of the long-lived (SL) antibody-secreting cells,
+
+* $\theta_S$ representing the antibodies production rate of SL antibody-secreting cells,
+
+* $\delta_L$ representing the decay rate over time of the long-lived (LL) antibodies,
+
+* $\theta_L$ representing the antibodies production rate of LL antibody-secreting cells,
+
+* $\delta_A$ representing the decay rate of antibodies.
+
+The equation for the antibodies $A$ is the non-homogeneous linear ordinary differential equation (ODE) given by:
+
+$$
+\begin{equation}
+\frac{\d A}{\d t} 
+= 
+\phi_S 
+\exp{\left(-\delta_S t \right)}
++ 
+\phi_L 
+\exp{\left( -\delta_L t \right)}
+- 
+\delta_A
+A
+,
+\end{equation}
+$${#eq-ode-1}
+
+with 
+
+$$
+\begin{equation}
+\phi_S = \theta_S S_0,
+\quad
+S_0 = S(0)
+,
+\end{equation}
+$$ {#eq-ode-1a}
+
+and
+$$
+\begin{equation}
+\phi_L = \theta_L L_0,
+\quad
+L_0 = L(0)
+,
+\end{equation}
+$$ {#eq-ode-1b}
+
+@eq-ode-1 writes
+
+$$
+\begin{equation}
+\frac{\d A}{\d t} 
++ \delta_A A 
+= 
+\phi_S \exp(-\delta_S t) 
++
+\phi_L \exp(-\delta_L t)
+\end{equation}
+$${#eq-ode-2}
+
+or equivalently
+
+$$
+\begin{equation}
+\frac{\d A}{\d t} + P(t) A = Q(t)
+\end{equation}
+$${#eq-ode-3}
+
+with:
+
+* $P(t) = \delta_f$ (i.e. constant),
+* $Q(t) = \phi_S \exp(-\delta_S t) + \phi_L \exp(-\delta_L t)$.
+
+The homogeneous equation writes
+
+$$
+\begin{equation}
+\frac{\d A}{\d t} 
++ 
+\delta_A
+A 
+= 
+0
+,
+\end{equation}
+$${#eq-ode-4}
+
+with the solution
+
+$$
+\begin{equation}
+A_h(t) 
+= 
+c 
+\exp(-\delta_A t)
+,
+\end{equation}
+$${#eq-ode-5}
+
+with $c$ a constant determined by the initial conditions (i.e $A(0)$). The non-homogeneous part can be solved using an integrating factor. Let the integrating factor be  
+
+$$
+\begin{equation}
+\mu(t) 
+= 
+\exp{
+\left(
+\int \delta_A \d t
+\right) 
+}
+= 
+\exp{(\delta_A t)}
+,
+\end{equation}
+$${#eq-ode-6}
+
+and multiplying by the integrating factor, @eq-ode-2 writes
+
+$$
+\begin{equation}
+\begin{split}
+\frac{\d{} }{\d t} 
+\left( 
+\exp(\delta_f t) f(t) 
+\right) 
+&
+= 
+\phi_S 
+\exp
+\left( 
+(\delta_A - \delta_S) t 
+\right) 
+\\
+&
++ 
+\phi_L 
+\exp
+\left(
+(\delta_A - \delta_L) t 
+\right)
+.
+\end{split}
+\end{equation}
+$${#eq-ode-7}
+
+Integrating both sides (with respect to $t$) writes:
+
+$$
+\begin{equation}
+\begin{split}
+\exp(\delta_A t) f(t) 
+&
+= 
+\phi_S
+\int 
+\exp{
+\left( (\delta_A - \delta_S) t \right)
+} 
+\d t
+\\
+&
++ 
+\phi_L
+\int 
+\exp{
+\left( (\delta_A - \delta_L) t \right)
+} 
+\d t
+.
+\end{split}
+\end{equation}
+$${#eq-ode-8}
+
+The first integral writes
+
+$$
+\begin{equation}
+\int 
+\exp
+\left( 
+(\delta_A - \delta_S) 
+t 
+\right) 
+\d t 
+= 
+\frac{1}{\delta_A - \delta_S} 
+\exp
+\left(
+(\delta_A - \delta_S) 
+t 
+\right)
++ 
+c_1
+,
+\end{equation}
+$$ {#eq-ode-9}
+
+and the second integral writes
+
+$$
+\begin{equation}
+\int 
+\exp
+\left( 
+(\delta_A - \delta_L) 
+t 
+\right) 
+\d t 
+= 
+\frac{1}{\delta_A - \delta_L}
+\exp
+\left(
+(\delta_A - \delta_L) 
+t 
+\right)
++ 
+c_2
+.
+\end{equation}
+$${#eq-ode-10}
+
+Plugging @eq-ode-9 and @eq-ode-10 in @eq-ode-8 writes
+
+$$
+\begin{equation}
+\begin{split}
+\exp(\delta_A t) f(t) 
+&
+= 
+\frac{\phi_S}{\delta_A - \delta_S} 
+\exp
+\left(
+(\delta_A - \delta_S) 
+t 
+\right)
+\\
+&
++ 
+\frac{\phi_L}{\delta_A - \delta_L}
+\exp
+\left(
+(\delta_A - \delta_L) 
+t 
+\right)
+\\
+&
++
+c
+.
+\end{split}
+\end{equation}
+$${#eq-ode-11}
+
+hence
+
+$$
+\begin{equation}
+\begin{split}
+A(t) 
+&
+= 
+c 
+\exp(-\delta_A t) 
+\\
+&
++ 
+\frac{\phi_S}{\delta_A - \delta_S} 
+\exp \left( -\delta_S t \right) 
+\\
+&
++ 
+\frac{\phi_L}{\delta_A - \delta_L}
+\exp \left( -\delta_L t \right)
+,
+\end{split}
+\end{equation}
+$$ {#eq-ode-12}
+
+with $c$ a constant determined by the initial condition (i.e. $A(0)$) plugged-in from the data, i.e. the `abelisa` value corresponding to the second time instance measurement (i.e. the 7 days corresponding measurement). Assuming the second time instance measurement is $A(0) = a$, the constant writes
+
+$$
+\begin{equation}
+c 
+=
+a 
+- 
+\frac{\phi_S}{\delta_A - \delta_S} 
+-
+\frac{\phi_L}{\delta_A - \delta_L}
+.
+\end{equation}
+$${#eq-ode-13}
+
+Let $\psib$ denote the vector of parameters for the decay rates (LL antibodies, SL antibodies and antibodies) and $\phi_S$ and $\phi_L$
+
+$$
+\begin{equation}
+\psib =
+\begin{bmatrix}
+\phi_S & \delta_S & \phi_L & \delta_L & \delta_{Ab} 
+\end{bmatrix}
+.
+\end{equation}
+$$ {#eq-param-vec}
+
+The following mixed-effect model each parameter $\xi_{k}$, with $k = 1, \ldots, 5$ is considered:
+
+$$
+\begin{equation}
+\log{\left( \xi_{k}^{i} \right)}
+=
+\log{\left( \xi_{k0} \right)} 
++
+\betab^{T}_{k}
+\zrvb_{k}^{i}
++
+\nu_{k}^{i}
+,
+\end{equation}
+$$ {#eq-nlme-model}
+
+where
+
+* $\xi^{i}_{k}$ represents the $k$^th^ parameters corresponding to the $i$^th^ subject,
+
+* $\xi_{k0}$ represents the *fixed effect* corresponding to the $k$^th^ element of the parameters vector,
+
+* $\zrvb^{i}_{k}$ represents the vector of independent variables of the model,
+
+* $\betab_{k}$ represents the coefficents corresponding to $\zrv^{i}_{k}$,
+
+* $\nu^{i}_{k}$ represents the *individual effect*, assumed to 
+
+  * follow a centered normal distributed with variance $\omega_{k}^{2}$ 
+
+  $$
+  \begin{equation}
+  \nu^{i}_{k}
+  \sim
+  \Normal{0, \omega_{k}^{2}}
+  \end{equation}
+  $$  {#eq-nlme-model-1}
+  
+  * be mutually independent
+  
+  $$
+  \begin{equation}
+  \nu^{i}_{k} \indep \nu^{j}_{l}
+  \end{equation}
+  $$ {#eq-nlme-model-2}
+
+
+The antibody concentration for patient $i$ at the $j$th time instance measurement is assumed to be an additional error model
+
+$$
+\begin{equation}
+\yrv_{ij}
+=
+\log_{10}
+\left(
+A(\psib^{i},t_{ij})
+\right)
++
+\epsilon_{ij}
+,
+\end{equation}
+$$ {#eq-nlme-model-3}
+
+with the noise following a centered normal distributed with the same variance $\omega_{A}^{2}$ (homoscedasticity), i.e.
+
+$$
+\begin{equation}
+\epsilon_{ij}
+\sim
+\Normal{0, \sigma_{A}^{2}}
+.
+\end{equation}
+$$ {#eq-nlme-model-4}
+
+The complete set of model's parameters is 
+
+$$
+\begin{equation}
+\thetab
+=
+\begin{bmatrix}
+\left( \xi_{k0} \right)_{k = 1, 5}
+&
+\left( \betab_{k} \right)_{k = 1, 5}
+&
+\left( \omega_{k} \right)_{k = 1, 5}
+&
+\sigma_{A}
+\end{bmatrix}
+\end{equation}
+$$ {#eq-nlme-model-5}
+
+Centering the age in the data:
+
+```{r}
+tb_clean_centered <- tb_clean |>
+  mutate(age_centered = age - mean(age)) |>
+  relocate(age_centered, .after = age) |>
+  select(-c(age, age_updated))
+
+# tb_clean_grouped <- groupedData(
+#   abelisa ~ time | id, 
+#   data = tb_clean_centered
+#   )
+
+
+tb_after_7_centered <- tb_after_7 |>
+  mutate(age_centered = age - mean(age)) |>
+  relocate(age_centered, .after = age) |>
+  select(-c(age, age_updated))
+
+# tb_after_7_grouped <- groupedData(
+#   abelisa ~ time | id, 
+#   data = tb_after_7_centered
+#   )
+```
+
+
+
+```{r}
+# # consntat corresponding to intial values
+# c_const <- 100
+# 
+# # Nonlinear function with log-parameters and fixed c
+# f_model_log <- function(time, log_phi_S, log_phi_L, log_delta_A, log_delta_S, log_delta_L) {
+#   phi_S <- exp(log_phi_S)
+#   phi_L <- exp(log_phi_L)
+#   delta_A <- exp(log_delta_A)
+#   delta_S <- exp(log_delta_S)
+#   delta_L <- exp(log_delta_L)
+# 
+#   c_const * exp(-delta_A * time) +
+#     (phi_S / (delta_A - delta_S)) * exp(-delta_S * time) +
+#     (phi_L / (delta_A - delta_L)) * exp(-delta_L * time)
+# }
+# 
+# # Starting values (log-scale for parameters)
+# start_vals <- c(
+#   log_phi_S = log(50),
+#   log_phi_L = log(30),
+#   log_delta_A = log(0.0005),
+#   log_delta_S = log(0.005),
+#   log_delta_L = log(0.001)
+# )
+# 
+# # Fit nlme model:
+# nlme_model <- nlme(
+#   abelisa ~ f_model_log(time, log_phi_S, log_phi_L, log_delta_A, log_delta_S, log_delta_L),
+#   
+#   # Data: 
+#   data = tb_after_7_centered,
+# 
+#   # Fixed effects:
+#   fixed = list(
+#     log_phi_S ~ sex + age_centered + bmi + country,
+#     log_phi_L ~ sex + age_centered + bmi + country,
+#     log_delta_A ~ sex + age_centered + bmi + country,
+#     log_delta_S + log_delta_L ~ 1  # no covariates on delta S and L params
+#   ),
+# 
+#   # Random effects on log_phi_S, log_phi_L, per subject
+#   random = pdDiag(log_phi_S + log_phi_L ~ 1 | id),
+# 
+#   start = start_vals,
+# 
+#   control = nlmeControl(
+#     pnlsTol = 0.1, 
+#     msMaxIter = 100, 
+#     msMaxEval = 1000
+#   )
+# )
+# 
+# summary(nlme_model)
+```

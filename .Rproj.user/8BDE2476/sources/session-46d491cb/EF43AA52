@@ -1,0 +1,26 @@
+{
+    "id": "EF43AA52",
+    "path": "~/Desktop/ebola/code_ebola_2.R",
+    "project_path": "code_ebola_2.R",
+    "type": "r_source",
+    "hash": "1248702897",
+    "contents": "",
+    "dirty": true,
+    "created": 1758885064548.0,
+    "source_on_save": false,
+    "relative_order": 9,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "244,0",
+        "scrollLine": "225"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1759041772,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1759178440708,
+    "read_only": false,
+    "read_only_alternatives": []
+}

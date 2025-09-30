@@ -1,0 +1,31 @@
+project:
+  type: book
+  output-dir: _book
+
+book:
+  title: "Non-linear mixed effects models"
+  subtitle: "Study case for Ebola antibody behavior data"
+  author: "Mircea Dumitru"
+  reader-mode: true
+  chapters:
+    - index.qmd
+    - nlme-ab.qmd
+    - nlme.qmd
+    - nlme-covariates.qmd
+    - model-from-article.qmd
+
+bibliography: references.bib
+
+format:
+  html:
+    html-math-method: katex
+    theme: cosmo
+    callout-appearance: simple    
+    code-link: true
+  pdf:
+    documentclass: scrreprt
+    include-in-header:
+      - file: packages.tex
+      - file: macros.tex 
+      
+editor: visual
